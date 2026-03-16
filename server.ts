@@ -13,8 +13,9 @@ import dotenv from "dotenv";
 import { Readable } from "stream";
 import path from "path";
 
-// Load environment variables from .env.local
-dotenv.config({ path: '.env.local' });
+// Load environment variables from .env by default, then let .env.local override if present.
+dotenv.config();
+dotenv.config({ path: ".env.local", override: true });
 
 const rawAppDataDir = process.env.APP_DATA_DIR?.trim() || "";
 const appDataDirFromEnv =
@@ -95,6 +96,8 @@ const unwrapEnvValue = (value?: string) => {
     ? trimmed.slice(1, -1)
     : trimmed;
 };
+const normalizeOriginForCompare = (value: string) =>
+  unwrapEnvValue(value).replace(/\/+$/, "").toLowerCase();
 
 const SUPABASE_RECORDINGS_BUCKET =
   unwrapEnvValue(process.env.SUPABASE_RECORDINGS_BUCKET) || "consultation-recordings";
@@ -494,19 +497,24 @@ async function startServer() {
   app.set("trust proxy", 1);
 
   // --- CORS Configuration ---
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:5173").split(",").map(o => o.trim()).filter(Boolean);
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   
   app.use((req, res, next) => {
     const origin = req.get("origin");
+    const normalizedOrigin = origin ? normalizeOriginForCompare(origin) : "";
     
     // Check if origin is in allowedOrigins
-    const isOriginAllowed = origin && allowedOrigins.some(allowed => {
+    const isOriginAllowed = normalizedOrigin && allowedOrigins.some((allowed) => {
+      const normalizedAllowed = normalizeOriginForCompare(allowed);
       // Handle wildcard in environment variable (e.g., "*.onrender.com")
-      if (allowed.startsWith("*.")) {
-        const domain = allowed.slice(2);
-        return origin.endsWith(domain) || origin.includes("." + domain);
+      if (normalizedAllowed.startsWith("*.")) {
+        const domain = normalizedAllowed.slice(2);
+        return normalizedOrigin.endsWith(domain) || normalizedOrigin.includes("." + domain);
       }
-      return origin === allowed;
+      return normalizedOrigin === normalizedAllowed;
     });
     
     // For production deployment, accept any onrender.com origin for the same app
