@@ -952,6 +952,7 @@ async function startServer() {
     redirectUri?: string;
     role?: "admin" | "faculty" | "admin_login" | "admin_reset";
     facultyId?: string;
+    windowOrigin?: string;
   };
   type OAuthAuthContext = { mode: "oauth"; auth: any; tokens: any; redirectUri: string };
   type DriveAuthContext =
@@ -1310,11 +1311,12 @@ async function startServer() {
   app.get("/api/admin/google/login-url", (req, res) => {
     try {
       const redirectUri = resolveOAuthRedirectUri(req);
+      const windowOrigin = getQueryString(req.query.windowOrigin) || "*";
       const oauth2Client = getOAuth2Client(redirectUri);
       const url = oauth2Client.generateAuthUrl({
         access_type: "offline",
         scope: [GOOGLE_USERINFO_EMAIL_SCOPE, ...GOOGLE_OAUTH_SCOPES],
-        state: encodeOAuthState({ redirectUri, role: "admin_login" }),
+        state: encodeOAuthState({ redirectUri, role: "admin_login", windowOrigin }),
         prompt: "consent",
       });
       res.json({ url });
@@ -1328,11 +1330,12 @@ async function startServer() {
   app.get("/api/admin/google/reset-url", (req, res) => {
     try {
       const redirectUri = resolveOAuthRedirectUri(req);
+      const windowOrigin = getQueryString(req.query.windowOrigin) || "*";
       const oauth2Client = getOAuth2Client(redirectUri);
       const url = oauth2Client.generateAuthUrl({
         access_type: "offline",
         scope: ["https://www.googleapis.com/auth/userinfo.email"],
-        state: encodeOAuthState({ redirectUri, role: "admin_reset" }),
+        state: encodeOAuthState({ redirectUri, role: "admin_reset", windowOrigin }),
         prompt: "select_account",
       });
       res.json({ url });
@@ -3401,14 +3404,19 @@ async function startServer() {
 
     try {
       stateObj = parseOAuthState(state);
-      const resolvedRedirectUri = stateObj.redirectUri || resolveOAuthRedirectUri(req);
-      targetOrigin = (() => {
-        try {
-          return new URL(resolvedRedirectUri).origin;
-        } catch {
-          return "*";
-        }
-      })();
+      // Use windowOrigin from state if available (OAuth popup scenario), otherwise fallback to redirectUri
+      if (stateObj.windowOrigin && stateObj.windowOrigin !== "*") {
+        targetOrigin = stateObj.windowOrigin;
+      } else {
+        const resolvedRedirectUri = stateObj.redirectUri || resolveOAuthRedirectUri(req);
+        targetOrigin = (() => {
+          try {
+            return new URL(resolvedRedirectUri).origin;
+          } catch {
+            return "*";
+          }
+        })();
+      }
     } catch {
       targetOrigin = "*";
     }
